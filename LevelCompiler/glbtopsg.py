@@ -48,6 +48,27 @@ class VertexLayout:
     elements: List[VDElem] = field(default_factory=list)
 
 
+TEMPLATE_ID_SETS = (
+    (0x00000280, 0x00000B3C),
+    (0x00000830, 0x00000B6C),
+)
+
+
+def _randomize_template_ids(psg_data: bytearray) -> None:
+    """Randomize paired identifier bytes at known template offsets."""
+
+    def _write_pair(offsets: Tuple[int, int]) -> None:
+        new_id = os.urandom(8)
+        for off in offsets:
+            end = off + len(new_id)
+            if end > len(psg_data):
+                raise ValueError(f"Template is too small to write ID at 0x{off:X}")
+            psg_data[off:end] = new_id
+
+    for pair in TEMPLATE_ID_SETS:
+        _write_pair(pair)
+
+
 class PsgTemplateParser:
     RW_GRAPHICS_VERTEXDESCRIPTOR = 0x000200E9
     RW_GRAPHICS_VERTEXBUFFER = 0x000200EA
@@ -668,6 +689,8 @@ class PSGConverterCLI:
 
         original_file_end = struct.unpack(">I", psg_data[template.main_baseresource_size:template.main_baseresource_size+4])[0]
         psg_data = psg_data[0:original_file_end]
+
+        _randomize_template_ids(psg_data)
 
         psg_data[template.graphics_baseresource_size:template.graphics_baseresource_size+4] = struct.pack(">I", len(vertex_data) + len(face_data))
         psg_data[template.vertex_buffer_size_offset:template.vertex_buffer_size_offset+4] = struct.pack(">I", len(vertex_data))
