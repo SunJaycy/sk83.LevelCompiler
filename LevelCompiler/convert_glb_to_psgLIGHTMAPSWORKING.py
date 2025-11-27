@@ -77,6 +77,10 @@ MESH_ROUGHNESS_ID_START = 0x340
 MESH_NORMAL_ID_START = 0x3A0
 MESH_LIGHTMAP_ID_START = 0x2E0
 ID_FIELD_LENGTH = 8
+TEMPLATE_ID_SETS = (
+    (0x00000280, 0x00000B3C),
+    (0x00000830, 0x00000B6C),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +115,37 @@ def _write_be32(buf: bytearray, offset: int, value: int) -> None:
     if len(buf) < end:
         buf.extend(b"\x00" * (end - len(buf)))
     struct.pack_into(">I", buf, offset, value)
+
+
+def _randomize_template_ids(psg_data: bytearray) -> None:
+    """Randomize paired identifier bytes at known template offsets."""
+
+    def _write_pair(offsets: Tuple[int, int]) -> None:
+        new_id = os.urandom(8)
+        for off in offsets:
+            end = off + len(new_id)
+            if end > len(psg_data):
+                raise ValueError(f"Template is too small to write ID at 0x{off:X}")
+            psg_data[off:end] = new_id
+
+    for pair in TEMPLATE_ID_SETS:
+        _write_pair(pair)
+
+
+def _randomized_template_copy(template_path: str) -> Tuple[str, str]:
+    """Return a temp file path containing the template with randomized IDs."""
+
+    with open(template_path, "rb") as f:
+        psg_bytes = bytearray(f.read())
+
+    _randomize_template_ids(psg_bytes)
+
+    temp_dir = tempfile.mkdtemp(prefix="psg_template_")
+    temp_path = os.path.join(temp_dir, os.path.basename(template_path))
+    with open(temp_path, "wb") as f:
+        f.write(psg_bytes)
+
+    return temp_path, temp_dir
 
 
 def _resolve_io_directory(base_dir: str, *names: str) -> str:
@@ -893,10 +928,19 @@ def convert_glb_directory(
             mesh_template_path = alpha_mesh_template if mesh_use_alpha else mesh_template
 
             try:
+                randomized_template_path, template_tmp_dir = _randomized_template_copy(
+                    mesh_template_path
+                )
+                cleanup_dirs.append(template_tmp_dir)
+            except Exception as exc:
+                _log(f"Error preparing template for {fname}: {exc}")
+                continue
+
+            try:
                 psg_converter.run_conversion(
                     gltf_path=glb_path,
                     bin_path=None,
-                    psg_template_path=mesh_template_path,
+                    psg_template_path=randomized_template_path,
                     output_path=mesh_out,
                     scale_xyz=256.0,
                 )
