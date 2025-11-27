@@ -891,7 +891,7 @@ def convert_glb_directory(
                 else:
                     image_path = None
 
-            mesh_use_alpha = alpha_from_material or texture_has_alpha
+            mesh_use_alpha = alpha_from_material
 
             normal_id_bytes: Optional[bytes] = None
             normal_tex_out: Optional[str] = None
