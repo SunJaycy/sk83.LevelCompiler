@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import glbtopsg
 import base64
+import hashlib
 import io
 import json
 import math
@@ -209,6 +210,28 @@ def _find_manual_texture(input_dir: str, base_name: str) -> Optional[str]:
     except FileNotFoundError:
         return None
     return best_path
+
+
+def _build_image_registry_key(
+    image_name: Optional[str],
+    image_bytes: Optional[bytes],
+    fallback_label: str = "",
+) -> Optional[Tuple[str, str]]:
+    """Return a registry key that distinguishes images by name and content.
+
+    *image_name* is preferred, but when it is absent we can still create a
+    useful key as long as *image_bytes* is provided. The optional
+    *fallback_label* is used in place of the missing name so lightmaps or other
+    nameless images still participate in the registry.
+    """
+
+    if image_bytes is None:
+        return None
+    key_name = image_name or fallback_label
+    if not key_name:
+        return None
+    digest = hashlib.sha1(image_bytes).hexdigest()
+    return key_name, digest
 
 
 # ---------------------------------------------------------------------------
@@ -771,10 +794,10 @@ def convert_glb_directory(
         for entry in os.listdir(output_dir)
         if entry.lower().endswith(".psg")
     }
-    diffuse_registry: Dict[str, Tuple[bytes, str]] = {}
-    normal_registry: Dict[str, Tuple[bytes, str]] = {}
-    roughness_registry: Dict[str, Tuple[bytes, str]] = {}
-    lightmap_registry: Dict[str, Tuple[bytes, str]] = {}
+    diffuse_registry: Dict[Tuple[str, str], Tuple[bytes, str]] = {}
+    normal_registry: Dict[Tuple[str, str], Tuple[bytes, str]] = {}
+    roughness_registry: Dict[Tuple[str, str], Tuple[bytes, str]] = {}
+    lightmap_registry: Dict[Tuple[str, str], Tuple[bytes, str]] = {}
 
     for fname in sorted(os.listdir(input_dir)):
         if not fname.lower().endswith(".glb"):
@@ -860,7 +883,11 @@ def convert_glb_directory(
         elif base_bytes is not None:
             texture_has_alpha = _detect_alpha_bytes(base_bytes)
 
-        base_registry_key = base_image_name if manual_image is None else None
+        base_registry_key = (
+            _build_image_registry_key(base_image_name, base_bytes, "diffuse")
+            if manual_image is None
+            else None
+        )
         diffuse_entry = diffuse_registry.get(base_registry_key) if base_registry_key else None
         if diffuse_entry is not None:
             diffuse_id_bytes, diffuse_tex_name = diffuse_entry
@@ -897,7 +924,8 @@ def convert_glb_directory(
             normal_tex_out: Optional[str] = None
             normal_tex_name: Optional[str] = None
             normal_needs_creation = False
-            normal_entry = normal_registry.get(normal_image_name) if normal_image_name else None
+            normal_key = _build_image_registry_key(normal_image_name, normal_bytes, "normal")
+            normal_entry = normal_registry.get(normal_key) if normal_key else None
             if normal_entry is not None:
                 normal_id_bytes, stored_name = normal_entry
                 normal_tex_name = stored_name
@@ -913,7 +941,8 @@ def convert_glb_directory(
             roughness_tex_out: Optional[str] = None
             rough_tex_name: Optional[str] = None
             roughness_needs_creation = False
-            rough_entry = roughness_registry.get(rough_image_name) if rough_image_name else None
+            rough_key = _build_image_registry_key(rough_image_name, rough_bytes, "roughness")
+            rough_entry = roughness_registry.get(rough_key) if rough_key else None
             if rough_entry is not None:
                 roughness_id_bytes, stored_name = rough_entry
                 rough_tex_name = stored_name
@@ -977,8 +1006,8 @@ def convert_glb_directory(
                     normal_image_path, temp_dir = _bytes_to_temp_file(normal_bytes, suffix)
                     cleanup_dirs.append(temp_dir)
                     _create_texture_psg(tex_template, normal_image_path, normal_tex_out, False, normal_id_bytes)
-                    if normal_image_name:
-                        normal_registry[normal_image_name] = (
+                    if normal_key:
+                        normal_registry[normal_key] = (
                             normal_id_bytes,
                             normal_tex_name or os.path.basename(normal_tex_out),
                         )
@@ -1005,8 +1034,8 @@ def convert_glb_directory(
                     if tmp_dir:
                         cleanup_dirs.append(tmp_dir)
                     _create_texture_psg(tex_template, processed_path, roughness_tex_out, False, roughness_id_bytes)
-                    if rough_image_name:
-                        roughness_registry[rough_image_name] = (
+                    if rough_key:
+                        roughness_registry[rough_key] = (
                             roughness_id_bytes,
                             rough_tex_name or os.path.basename(roughness_tex_out),
                         )
@@ -1019,7 +1048,10 @@ def convert_glb_directory(
             lightmap_id_bytes: Optional[bytes] = None
             lightmap_tex_name: Optional[str] = None
             if emission_image_name:
-                registry_entry = lightmap_registry.get(emission_image_name)
+                lightmap_key = _build_image_registry_key(
+                    emission_image_name, emission_bytes, "lightmap"
+                )
+                registry_entry = lightmap_registry.get(lightmap_key) if lightmap_key else None
                 if registry_entry is not None:
                     lightmap_id_bytes, lightmap_tex_name = registry_entry
                 elif emission_bytes is not None:
@@ -1045,10 +1077,11 @@ def convert_glb_directory(
                             lightmap_id_bytes,
                         )
                         lightmap_tex_name = os.path.basename(lightmap_tex_out)
-                        lightmap_registry[emission_image_name] = (
-                            lightmap_id_bytes,
-                            lightmap_tex_name,
-                        )
+                        if lightmap_key:
+                            lightmap_registry[lightmap_key] = (
+                                lightmap_id_bytes,
+                                lightmap_tex_name,
+                            )
                     except Exception as exc:
                         _log(f"Error creating lightmap texture for {fname}: {exc}")
                         lightmap_id_bytes = None
