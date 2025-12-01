@@ -82,6 +82,7 @@ TEMPLATE_ID_SETS = (
     (0x00000280, 0x00000B3C),
     (0x00000830, 0x00000B6C),
 )
+_USED_TEMPLATE_IDS: Set[bytes] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +122,15 @@ def _write_be32(buf: bytearray, offset: int, value: int) -> None:
 def _randomize_template_ids(psg_data: bytearray) -> None:
     """Randomize paired identifier bytes at known template offsets."""
 
+    def _new_unique_id() -> bytes:
+        while True:
+            candidate = os.urandom(ID_FIELD_LENGTH)
+            if candidate not in _USED_TEMPLATE_IDS:
+                _USED_TEMPLATE_IDS.add(candidate)
+                return candidate
+
     def _write_pair(offsets: Tuple[int, int]) -> None:
-        new_id = os.urandom(8)
+        new_id = _new_unique_id()
         for off in offsets:
             end = off + len(new_id)
             if end > len(psg_data):
