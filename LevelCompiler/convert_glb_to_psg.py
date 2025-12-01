@@ -136,6 +136,11 @@ def _randomize_template_ids(psg_data: bytearray) -> None:
             candidate = os.urandom(ID_FIELD_LENGTH)
             if candidate not in used_ids:
                 used_ids.add(candidate)
+    def _new_unique_id() -> bytes:
+        while True:
+            candidate = os.urandom(ID_FIELD_LENGTH)
+            if candidate not in _USED_TEMPLATE_IDS:
+                _USED_TEMPLATE_IDS.add(candidate)
                 return candidate
 
     def _write_pair(offsets: Tuple[int, int]) -> None:
