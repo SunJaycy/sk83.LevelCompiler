@@ -20,7 +20,7 @@ import struct
 import traceback
 import argparse
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 try:
     import numpy
@@ -52,13 +52,31 @@ TEMPLATE_ID_SETS = (
     (0x00000280, 0x00000B3C),
     (0x00000830, 0x00000B6C),
 )
+ID_FIELD_LENGTH = 8
+_USED_TEMPLATE_IDS: Set[bytes] = set()
 
 
 def _randomize_template_ids(psg_data: bytearray) -> None:
     """Randomize paired identifier bytes at known template offsets."""
 
+    used_ids: Set[bytes] = set(_USED_TEMPLATE_IDS)
+
+    for off_a, off_b in TEMPLATE_ID_SETS:
+        for off in (off_a, off_b):
+            end = off + ID_FIELD_LENGTH
+            if end > len(psg_data):
+                raise ValueError(f"Template is too small to read ID at 0x{off:X}")
+            used_ids.add(bytes(psg_data[off:end]))
+
+    def _new_unique_id() -> bytes:
+        while True:
+            candidate = os.urandom(ID_FIELD_LENGTH)
+            if candidate not in used_ids:
+                used_ids.add(candidate)
+                return candidate
+
     def _write_pair(offsets: Tuple[int, int]) -> None:
-        new_id = os.urandom(8)
+        new_id = _new_unique_id()
         for off in offsets:
             end = off + len(new_id)
             if end > len(psg_data):
@@ -67,6 +85,8 @@ def _randomize_template_ids(psg_data: bytearray) -> None:
 
     for pair in TEMPLATE_ID_SETS:
         _write_pair(pair)
+
+    _USED_TEMPLATE_IDS.update(used_ids)
 
 
 class PsgTemplateParser:
