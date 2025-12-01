@@ -122,6 +122,20 @@ def _write_be32(buf: bytearray, offset: int, value: int) -> None:
 def _randomize_template_ids(psg_data: bytearray) -> None:
     """Randomize paired identifier bytes at known template offsets."""
 
+    used_ids: Set[bytes] = set(_USED_TEMPLATE_IDS)
+
+    for off_a, off_b in TEMPLATE_ID_SETS:
+        for off in (off_a, off_b):
+            end = off + ID_FIELD_LENGTH
+            if end > len(psg_data):
+                raise ValueError(f"Template is too small to read ID at 0x{off:X}")
+            used_ids.add(bytes(psg_data[off:end]))
+
+    def _new_unique_id() -> bytes:
+        while True:
+            candidate = os.urandom(ID_FIELD_LENGTH)
+            if candidate not in used_ids:
+                used_ids.add(candidate)
     def _new_unique_id() -> bytes:
         while True:
             candidate = os.urandom(ID_FIELD_LENGTH)
@@ -139,6 +153,8 @@ def _randomize_template_ids(psg_data: bytearray) -> None:
 
     for pair in TEMPLATE_ID_SETS:
         _write_pair(pair)
+
+    _USED_TEMPLATE_IDS.update(used_ids)
 
 
 def _randomized_template_copy(template_path: str) -> Tuple[str, str]:
